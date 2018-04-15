@@ -1,65 +1,77 @@
-const DATA = require('./data.json')
-const express = require('express')
-const bodyParser = require('body-parser')
-const morgan = require('morgan')
+const express = require('express');
+const bodyParser = require('body-parser');
+const morgan = require('morgan');
+const Person = require('./models/person');
 
-const app = express()
+const app = express();
 
 // Middleware
-app.use(bodyParser.json())
-morgan.token('type', (req, res) => JSON.stringify(req.body))
-app.use(morgan(':method :url :type :status :res[content-length] - :response-time ms'))
+app.use(bodyParser.json());
+morgan.token('type', req => JSON.stringify(req.body));
+app.use(morgan(':method :url :type :status :res[content-length] - :response-time ms'));
 
 // Frontend
-app.use(express.static('build'))
+app.use(express.static('build'));
 
 // Routes
 app.get('/api/persons', (req, res) => {
-  res.json(DATA.persons)
-})
+  Person
+    .find({})
+    .then(p => res.json(p.map(Person.format)));
+});
 
 app.get('/api/persons/:id', (req, res) => {
-  const id = Number(req.params.id)
-  const ids = DATA.persons.map(p => p.id)
-
-  if (!ids.includes(id)) return res.status(404).end()
-
-  res.json(DATA.persons.find(p => p.id === id))
-})
+  const { id } = req.params;
+  Person
+    .findById(id)
+    .then(p => res.send(Person.format(p)))
+    .catch(() => res.status(404).send());
+});
 
 app.post('/api/persons', (req, res) => {
-  const name = req.body.name
-  const number = req.body.number
-  const id = Math.floor(Math.random() * 1e8)
+  const { name, number } = req.body;
 
   // Data validation
-  if (name === undefined || name === '') return res.status(400).send({ error: 'Missing name' })
-  if (number === undefined || number === '') return res.status(400).send({ error: 'Missing phone number' })
+  if (name === undefined || name === '') return res.status(400).send({ error: 'Missing name' });
+  if (number === undefined || number === '') return res.status(400).send({ error: 'Missing phone number' });
 
-  const names = DATA.persons.map(p => p.name)
-  if (names.includes(name)) return res.status(400).send({ error: 'Person already exists' })
+  const person = new Person({ name, number });
+  person
+    .save()
+    .then((p) => {
+      res.status(201).json(Person.format(p));
+    })
+    .catch((err) => {
+      err.code === 11000 ? res.status(409).send() : res.status(400).send();
+    });
+});
 
-  const person = { name, number, id }
+app.put('/api/persons/:id', (req, res) => {
+  const { name, number } = req.body;
 
-  DATA.persons.push(person)
-  res.status(201).send(person)
-})
+  Person
+    .updateOne({ _id: req.params.id }, { name, number })
+    .then((p) => {
+      Person.findById(req.params.id).then(p => res.send(p));
+    });
+});
 
 app.delete('/api/persons/:id', (req, res) => {
-  const id = Number(req.params.id)
-  const ids = DATA.persons.map(p => p.id)
-
-  if (!ids.includes(id)) return res.status(404).end()
-
-  DATA.persons = DATA.persons.filter(p => p.id !== id)
-  res.status(204).end()
-})
+  Person
+    .findByIdAndRemove(req.params.id)
+    .then(() => res.status(204).end())
+    .catch(err => console.log(err));
+});
 
 app.get('/info', (req, res) => {
-  res.send(`
-    <p>Puhelinluettelossa ${ DATA.persons.length } henkilön tiedot</p>
-    <p>${ new Date() }</p>
-  `)
-})
+  Person
+    .count({})
+    .then((c) => {
+      res.send(`
+      <p>Puhelinluettelossa ${c} henkilön tiedot</p>
+      <p>${new Date()}</p>
+  `);
+    });
+});
 
-app.listen(process.env.PORT || 3001)
+app.listen(process.env.PORT || 3001);
